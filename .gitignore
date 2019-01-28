@@ -6,8 +6,6 @@ __pycache__/
 # C extensions
 *.so
 .vscode
-backup.py
-test-app
 # Distribution / packaging
 .Python
 build/
@@ -104,3 +102,8 @@ venv.bak/
 
 # mypy
 .mypy_cache/
+
+# local
+backup.py
+test-app
+test_deployment.py
