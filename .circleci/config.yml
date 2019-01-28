@@ -1,5 +1,18 @@
 version: 2
 jobs:
+  test-connection:
+    docker:
+      - image: google/cloud-sdk:alpine
+    steps:
+      - checkout
+      - run: |
+          curl \
+            --header "Content-Type:application/json" \
+            --header "X-Auth-Token:${TOKEN}" \
+            --request POST \
+            --data "{\"project\":\"${GCP_PROJECT}\",\"zones\":\"${GCP_ZONES}\"}" \
+            ${GCP_CF_TEST_ENDPOINT}
+          echo "CircleCI Test done"
   snapshot:
     docker:
       - image: google/cloud-sdk:alpine
@@ -10,15 +23,18 @@ jobs:
             --header "Content-Type:application/json" \
             --header "X-Auth-Token:${TOKEN}" \
             --request POST \
-            --data '{"project":${GCP_PROJECT},"zones":${GCP_ZONES}}' \
+            --data "{\"project\":\"${GCP_PROJECT}\",\"zones\":\"${GCP_ZONES}\"}" \
             ${GCP_CF_ENDPOINT}
           echo "Snapshot done"
 workflows:
   version: 2
+  test:
+    jobs:
+      - test-connection
   snapshot-workflow:
     triggers:
       - schedule:
-          cron: "30 4 * * 1-5"
+          cron: "30 21 * * 1-5"
           filters:
             branches:
               only:
