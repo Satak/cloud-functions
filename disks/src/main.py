@@ -5,7 +5,7 @@ from os import environ
 from datetime import date
 import logging
 from googleapiclient import discovery
-from flask import jsonify, abort, request
+from flask import jsonify, abort
 
 SECRET_TOKEN = environ.get('TOKEN')
 
@@ -19,7 +19,21 @@ def list_disks(disk_service, project, zone):
 def take_snapshot(disk_service, disk_name, project, zone, body):
     request = disk_service.createSnapshot(project=project, zone=zone, disk=disk_name, body=body)
     response = request.execute()
+    logging.info(f'Took snapshot on disk {disk_name}')
     return response
+
+
+def get_project_zones(request):
+    params = request.get_json(silent=True)
+    if not params:
+        logging.warn('Endpoint accessed without any payload')
+        abort(400)
+    project = params.get('project')
+    zones = params.get('zones')
+    if not all((project, zones)):
+        logging.warn('Endpoint accessed without project or zones payload')
+        abort(400)
+    return project, zones
 
 
 def auth_check(request):
@@ -32,21 +46,14 @@ def auth_check(request):
 def main(request):
     auth_check(request)
     if request.method == 'POST':
-        params = request.get_json(silent=True)
-        if not params:
-            return jsonify({'error': 'Empty JSON payload'}), 400
-        project = params.get('project')
-        zones = params.get('zones')
-        if not all((project, zones)):
-            return jsonify({'error': 'project or zones are missing from the payload'}), 400
-
+        project, zones = get_project_zones(request)
+        date_str = date.today().isoformat()
         service = discovery.build('compute', 'v1')
         disk_service = service.disks()  # pylint: disable=E1101
         # snapshot_service = service.snapshots()  # pylint: disable=E1101
         disks = list_disks(disk_service, project, zones)
         for disk in disks:
-            take_snapshot(disk_service, disk, project, zones, {'name': f'snapshot-test-{date.today().isoformat()}'})
-            logging.info(f'Took snapshot on disk {disk}')
+            take_snapshot(disk_service, disk, project, zones, {'name': f'snapshot-test-{date_str}'})
         logging.info('Endpoint accessed with valid credentials')
         return jsonify(disks)
     else:
