@@ -2,6 +2,7 @@
 GOOGLE_APPLICATION_CREDENTIALS=<path to service account>
 """
 from os import environ
+import json
 from datetime import date
 import logging
 from googleapiclient import discovery
@@ -12,15 +13,30 @@ SECRET_TOKEN = environ.get('TOKEN')
 
 def list_disks(disk_service, project, zone):
     request = disk_service.list(project=project, zone=zone)
-    response = request.execute()
-    return [item.get('name') for item in response.get('items')]
+    result = request.execute()
+    return result['items']
 
 
-def take_snapshot(disk_service, disk_name, project, zone, body):
-    request = disk_service.createSnapshot(project=project, zone=zone, disk=disk_name, body=body)
-    response = request.execute()
-    logging.info(f'Took snapshot on disk {disk_name}')
-    return response
+def take_snapshot(disk_service, disk, project, zone):
+    if not disk.get('description') or '-pool-' in disk.get('name', ''):
+        logging.info(f'No description found from disk. Skipped disk {disk.get("name")}')
+        return None
+    date_str = date.today().isoformat()
+    description = None
+    try:
+        description = json.loads(disk.get('description'))
+        pvc = description.get('kubernetes.io/created-for/pvc/name', '')
+        namespace = description.get('kubernetes.io/created-for/pvc/namespace', '')
+        body = {
+            'name': f'{pvc}-{namespace}-{date_str}',
+            'description': disk.get('description')
+        }
+        request = disk_service.createSnapshot(project=project, zone=zone, disk=disk['name'], body=body)
+        response = request.execute()
+        logging.info(f'Snapshot OK. PVC: {pvc} Namespace: {namespace} Zone: {zone}')
+        return response
+    except Exception as err:
+        logging.error(f'Error while taking a snapshot: {err}')
 
 
 def get_project_zones(request):
@@ -33,7 +49,7 @@ def get_project_zones(request):
     if not all((project, zones)):
         logging.warn('Endpoint accessed without project or zones payload')
         abort(400)
-    return project, zones
+    return project, [zone.strip() for zone in zones.split(',')]
 
 
 def auth_check(request):
@@ -47,14 +63,15 @@ def main(request):
     auth_check(request)
     if request.method == 'POST':
         project, zones = get_project_zones(request)
-        date_str = date.today().isoformat()
         service = discovery.build('compute', 'v1')
         disk_service = service.disks()  # pylint: disable=E1101
         # snapshot_service = service.snapshots()  # pylint: disable=E1101
-        disks = list_disks(disk_service, project, zones)
-        for disk in disks:
-            take_snapshot(disk_service, disk, project, zones, {'name': f'snapshot-test-{date_str}'})
+        for zone in zones:
+            disks = list_disks(disk_service, project, zone)
+            for disk in disks:
+                take_snapshot(disk_service, disk, project, zone)
+
         logging.info('Endpoint accessed with valid credentials')
-        return jsonify(disks)
+        return jsonify({'data': 'Snapshots done'})
     else:
         return jsonify({'error': 'Method not allowed'}), 400
